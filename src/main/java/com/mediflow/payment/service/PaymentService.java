@@ -74,21 +74,58 @@ public class PaymentService {
         //
         // BUSINESS RULE:
         // The same idempotency key must not create another payment.
+        // PURPOSE:
+// Check whether this idempotency key was already used.
+//
+// WHY:
+// A client may retry the same payment request.
+// We should return the original payment instead of creating
+// a duplicate payment.
         Optional<Payment> existingPayment =
                 paymentRepository.findByIdempotencyKey(
                         request.getIdempotencyKey());
 
+
+// BUSINESS RULE:
+// If the idempotency key already exists, it must belong
+// to the same user and same order.
+//
+// WHY:
+// This prevents another user or another order from
+// reusing an existing idempotency key.
         if (existingPayment.isPresent()) {
 
+            Payment existingPaymentRecord = existingPayment.get();
+
+
+            // SECURITY CHECK:
+            // Verify that the existing payment belongs to
+            // the currently authenticated user.
+            if (!existingPaymentRecord.getUserEmail().equals(userEmail)) {
+
+                throw new IllegalArgumentException(
+                        "Idempotency key already belongs to another user");
+            }
+
+
+            // BUSINESS RULE:
+            // The same idempotency key cannot be used
+            // for a different order.
+            if (!existingPaymentRecord.getOrderId()
+                    .equals(request.getOrderId())) {
+
+                throw new IllegalArgumentException(
+                        "Idempotency key already belongs to another order");
+            }
+
+
             // PURPOSE:
-            // Return the already-created payment.
+            // Return the original payment for a legitimate retry.
             //
             // WHY:
-            // This prevents duplicate payment records when the same
-            // request is retried.
-            return mapToResponseDto(existingPayment.get());
+            // This is the actual idempotent behavior.
+            return mapToResponseDto(existingPaymentRecord);
         }
-
 
         // PURPOSE:
         // Find the order that the user wants to pay for.

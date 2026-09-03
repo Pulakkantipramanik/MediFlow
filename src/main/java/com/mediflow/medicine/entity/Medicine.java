@@ -1,6 +1,6 @@
 package com.mediflow.medicine.entity;
 
-
+import jakarta.persistence.Version;
 import com.mediflow.medicine.enums.MedicineStatus;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Min;
@@ -49,5 +49,19 @@ public class Medicine {
     private MedicineStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime    updatedAt;
+
+    // PURPOSE:
+// Used by Hibernate for optimistic locking.
+//
+// WHY:
+// Multiple users may try to update the same medicine stock
+// at the same time.
+//
+// Hibernate checks the version before updating the row.
+// If another transaction already changed the row,
+// Hibernate detects the conflict instead of silently
+// overwriting the latest stock value.
+    @Version
+    private Long version;
 
 }

@@ -4,6 +4,7 @@ import com.mediflow.medicine.entity.Medicine;
 import com.mediflow.medicine.exception.MedicineNotFoundException;
 import com.mediflow.medicine.exception.OrderNotFoundException;
 import com.mediflow.medicine.repository.MedicineRepository;
+import com.mediflow.order.dto.OrderRejectRequestDto;
 import com.mediflow.order.dto.OrderRequestDto;
 import com.mediflow.order.dto.OrderResponseDto;
 import com.mediflow.order.entity.Order;
@@ -183,93 +184,85 @@ public class OrderService {
     }
 
 
-    // PURPOSE:
-    // Allows an ADMIN to approve a PENDING order.
-    // BUSINESS RULE:
-    // Only PENDING orders can move to APPROVED status.
+    /// PURPOSE:
+// Approves a pending order by an administrator.
+//
+// WHY:
+// Approval is a controlled workflow step.
+// Only PENDING orders can be approved.
     @Transactional
     public OrderResponseDto approveOrder(Long orderId) {
 
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException(
+                        "Order not found with id: " + orderId
+                ));
+
         // PURPOSE:
-        // Find the order that the ADMIN wants to approve.
-        Order order =
-                orderRepository.findById(orderId)
-                        .orElseThrow(() ->
-                                new OrderNotFoundException(
-                                        "Order not found with id: "
-                                                + orderId
-                                ));
+        // Prevent invalid state transitions.
+        //
+        // WHY:
+        // APPROVED, PROCESSING or REJECTED orders
+        // must not be approved again.
+        validateCurrentStatus(
+                order,
+                OrderStatus.PENDING,
+                "approved"
+        );
 
-        // BUSINESS RULE:
-        // An order that is already APPROVED or REJECTED
-        // cannot be approved again.
-        if (order.getStatus() != OrderStatus.PENDING) {
-
-            throw new IllegalArgumentException(
-                    "Only PENDING orders can be approved"
-            );
-        }
-
-        // BUSINESS RULE:
-        // After successful ADMIN review, the order becomes APPROVED.
         order.setStatus(OrderStatus.APPROVED);
 
-        Order updatedOrder =
-                orderRepository.save(order);
-
-        return mapToResponseDto(updatedOrder);
+        return mapToResponseDto(
+                orderRepository.save(order)
+        );
     }
 
-
     // PURPOSE:
-    // Allows an ADMIN to reject a PENDING order.
-    // BUSINESS RULE:
-    // Only PENDING orders can be rejected.
-    // IMPORTANT:
-    // Stock was reduced when the order was created,
-    // therefore rejected orders must return that stock.
+// Rejects an order only when it is still pending.
+//
+// WHY:
+// An order that is already approved or processing
+// should not be rejected through this endpoint.
     @Transactional
     public OrderResponseDto rejectOrder(
             Long orderId,
-            String rejectionReason) {
+            OrderRejectRequestDto request) {
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException(
+                        "Order not found with id: " + orderId
+                ));
 
         // PURPOSE:
-        // Find the order that the ADMIN wants to reject.
-        Order order =
-                orderRepository.findById(orderId)
-                        .orElseThrow(() ->
-                                new OrderNotFoundException(
-                                        "Order not found with id: "
-                                                + orderId
-                                ));
+        // Allow rejection only from PENDING state.
+        //
+        // WHY:
+        // This prevents an already approved/processing order
+        // from moving backward to REJECTED.
+        validateCurrentStatus(
+                order,
+                OrderStatus.PENDING,
+                "rejected"
+        );
 
-        // BUSINESS RULE:
-        // Only PENDING orders can be rejected.
-        if (order.getStatus() != OrderStatus.PENDING) {
+        order.setStatus(OrderStatus.REJECTED);
 
-            throw new IllegalArgumentException(
-                    "Only PENDING orders can be rejected"
-            );
-        }
+        order.setRejectionReason(
+                request.getRejectionReason()
+        );
 
-        // BUSINESS RULE:
+        // PURPOSE:
+        // Restore stock because the order will no longer be fulfilled.
+        //
+        // WHY:
         // Stock was reduced when the order was created.
-        // Since the order is being rejected, that reserved stock
-        // must be added back to the medicine inventory.
+        // Rejected orders must return that quantity to inventory.
         restoreMedicineStock(order);
 
-        // BUSINESS RULE:
-        // Store the rejection status and the reason provided by ADMIN.
-        order.setStatus(OrderStatus.REJECTED);
-        order.setRejectionReason(rejectionReason);
-
-        Order updatedOrder =
-                orderRepository.save(order);
-
-        return mapToResponseDto(updatedOrder);
+        return mapToResponseDto(
+                orderRepository.save(order)
+        );
     }
-
-
     // PURPOSE:
     // Restores the ordered quantity back into medicine stock
     // when an order is rejected.
@@ -319,6 +312,146 @@ public class OrderService {
                 order.getStatus().name(),
                 order.getOrderDate(),
                 order.getRejectionReason()
+        );
+    }
+    // PURPOSE:
+// Validates whether an order is currently in the expected status
+// before performing a business operation.
+//
+// WHY:
+// An order should not be approved/rejected from an invalid state.
+// Keeping this validation in one method avoids repeating the same
+// status-checking logic in multiple methods.
+    private void validateCurrentStatus(
+            Order order,
+            OrderStatus expectedStatus,
+            String action) {
+
+        if (order.getStatus() != expectedStatus) {
+            throw new IllegalArgumentException(
+                    "Order cannot be " + action +
+                            " because current status is " + order.getStatus()
+            );
+        }
+    }
+    // PURPOSE:
+// Cancels an order belonging to the logged-in user.
+//
+// WHY:
+// A user must not be able to cancel another user's order.
+// Also, cancellation is allowed only while the order is PENDING.
+    @Transactional
+    public OrderResponseDto cancelOrder(
+            Long orderId,
+            String userEmail) {
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException(
+                        "Order not found with id: " + orderId
+                ));
+
+        // PURPOSE:
+        // Verify that the order belongs to the logged-in user.
+        //
+        // WHY:
+        // Without ownership validation, one user could cancel
+        // another user's order by simply knowing its ID.
+        if (!order.getUserEmail().equals(userEmail)) {
+            throw new IllegalArgumentException(
+                    "You are not allowed to cancel this order"
+            );
+        }
+
+        // PURPOSE:
+        // Cancellation is allowed only from PENDING state.
+        //
+        // WHY:
+        // Once admin approves the order, payment/processing
+        // workflow may already have started, so the user cannot
+        // cancel it through this endpoint.
+        validateCurrentStatus(
+                order,
+                OrderStatus.PENDING,
+                "cancelled"
+        );
+
+        // PURPOSE:
+        // Restore the medicine quantity that was reserved
+        // when the order was created.
+        //
+        // WHY:
+        // Cancelled orders will not consume the medicine,
+        // so the reserved stock must become available again.
+        restoreMedicineStock(order);
+
+        order.setStatus(OrderStatus.CANCELLED);
+
+        return mapToResponseDto(
+                orderRepository.save(order)
+        );
+    }
+    // PURPOSE:
+// Moves an order from PROCESSING to SHIPPED.
+//
+// WHY:
+// Only an order that has entered the processing stage
+// can be shipped. This prevents invalid status jumps.
+    @Transactional
+    public OrderResponseDto shipOrder(Long orderId) {
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException(
+                        "Order not found with id: " + orderId
+                ));
+
+        // PURPOSE:
+        // Allow shipping only when the order is PROCESSING.
+        //
+        // WHY:
+        // An order cannot be shipped before payment/processing
+        // has been completed.
+        validateCurrentStatus(
+                order,
+                OrderStatus.PROCESSING,
+                "shipped"
+        );
+
+        order.setStatus(OrderStatus.SHIPPED);
+
+        return mapToResponseDto(
+                orderRepository.save(order)
+        );
+    }
+    // PURPOSE:
+// Moves an order from SHIPPED to DELIVERED.
+//
+// WHY:
+// Delivery should happen only after the order has actually
+// been marked as shipped.
+    @Transactional
+    public OrderResponseDto deliverOrder(Long orderId) {
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException(
+                        "Order not found with id: " + orderId
+                ));
+
+        // PURPOSE:
+        // Allow delivery only for SHIPPED orders.
+        //
+        // WHY:
+        // This prevents an order from directly jumping from
+        // PROCESSING or APPROVED to DELIVERED.
+        validateCurrentStatus(
+                order,
+                OrderStatus.SHIPPED,
+                "delivered"
+        );
+
+        order.setStatus(OrderStatus.DELIVERED);
+
+        return mapToResponseDto(
+                orderRepository.save(order)
         );
     }
 }

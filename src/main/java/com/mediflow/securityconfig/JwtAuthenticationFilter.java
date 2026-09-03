@@ -1,4 +1,4 @@
-package com.mediflow.config;
+package com.mediflow.securityconfig;
 
 import com.mediflow.user.entity.User;
 import com.mediflow.user.repository.UserRepository;

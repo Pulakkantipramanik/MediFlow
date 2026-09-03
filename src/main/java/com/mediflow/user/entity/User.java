@@ -1,5 +1,6 @@
 package com.mediflow.user.entity;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -18,6 +19,13 @@ public class User {
 
     private String name;
 
+    // BUSINESS RULE:
+// Each user must have a unique email address.
+//
+// WHY:
+// The email is used for login and user identification.
+// Two users should not share the same login email.
+    @Column(unique = true, nullable = false)
     private String email;
 
     private String password;

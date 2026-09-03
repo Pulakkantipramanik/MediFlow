@@ -1,5 +1,6 @@
 package com.mediflow.payment.entity;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -19,10 +20,14 @@ public class Payment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // PURPOSE:
-    // কোন order-এর জন্য payment তৈরি হয়েছে সেটা identify করার জন্য orderId রাখা হচ্ছে.
+    // BUSINESS RULE:
+// One order can have only one payment.
+//
+// WHY:
+// Once an order has a payment record, another payment
+// record should not be created for the same order.
+    @Column(unique = true, nullable = false)
     private Long orderId;
-
     // PURPOSE:
     // কোন authenticated user payment করছে সেটা track করার জন্য email রাখা হচ্ছে.
     private String userEmail;

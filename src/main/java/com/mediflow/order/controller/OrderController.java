@@ -54,6 +54,24 @@ public class OrderController {
 
         return ResponseEntity.ok(orders);
     }
+    // PURPOSE:
+// Allows a logged-in user to cancel their own pending order.
+//
+// WHY:
+// Users should be able to cancel an order before admin approval.
+// Authentication is used to identify the logged-in user.
+    @PatchMapping("/{id}/cancel")
+    public ResponseEntity<OrderResponseDto> cancelOrder(
+            @PathVariable Long id,
+            Authentication authentication) {
+
+        String userEmail = authentication.getName();
+
+        OrderResponseDto response =
+                orderService.cancelOrder(id, userEmail);
+
+        return ResponseEntity.ok(response);
+    }
 
     // ADMIN only → View all orders
     @PreAuthorize("hasRole('ADMIN')")
@@ -86,9 +104,41 @@ public class OrderController {
         OrderResponseDto response =
                 orderService.rejectOrder(
                         id,
-                        request.getRejectionReason()
+                        request
                 );
 
         return ResponseEntity.ok(response);
     }
+    // PURPOSE:
+// Allows only ADMIN to mark a processing order as shipped.
+//
+// WHY:
+// Shipping is an operational action and should not be
+// controlled by a normal customer.
+    @PreAuthorize("hasRole('ADMIN')")
+    @PatchMapping("/{id}/ship")
+    public ResponseEntity<OrderResponseDto> shipOrder(
+            @PathVariable Long id) {
+
+        OrderResponseDto response =
+                orderService.shipOrder(id);
+
+        return ResponseEntity.ok(response);
+    }
+    // PURPOSE:
+// Allows only ADMIN to mark a shipped order as delivered.
+//
+// WHY:
+// Delivery is the final fulfillment step of the order.
+    @PreAuthorize("hasRole('ADMIN')")
+    @PatchMapping("/{id}/deliver")
+    public ResponseEntity<OrderResponseDto> deliverOrder(
+            @PathVariable Long id) {
+
+        OrderResponseDto response =
+                orderService.deliverOrder(id);
+
+        return ResponseEntity.ok(response);
+    }
+
 }

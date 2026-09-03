@@ -1,11 +1,12 @@
 package com.mediflow.medicine.exception;
-
+import jakarta.persistence.OptimisticLockException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -63,5 +64,34 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ex.getMessage());
+    }
+    @ExceptionHandler(OptimisticLockException.class)
+// PURPOSE:
+// Handle concurrent database update conflicts.
+//
+// WHY:
+// When two users try to update the same medicine at the
+// same time, @Version detects the conflict.
+// We return 409 instead of exposing a server error.
+    public ResponseEntity<ErrorResponse> handleOptimisticLockException(
+            OptimisticLockException ex) {
+
+        // PURPOSE:
+        // Create a standard conflict response.
+        //
+        // WHY:
+        // The request conflicts with a newer database state.
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                "Medicine stock was updated by another request. Please try again.",
+                LocalDateTime.now(),
+                null
+        );
+
+        // PURPOSE:
+        // Return HTTP 409 CONFLICT.
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(errorResponse);
     }
 }

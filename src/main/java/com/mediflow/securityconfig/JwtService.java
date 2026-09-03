@@ -1,4 +1,4 @@
-package com.mediflow.config;
+package com.mediflow.securityconfig;
 
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;

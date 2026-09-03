@@ -1,4 +1,4 @@
-package com.mediflow.config;
+package com.mediflow.securityconfig;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;

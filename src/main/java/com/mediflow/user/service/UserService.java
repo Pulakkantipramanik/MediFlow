@@ -1,6 +1,6 @@
 package com.mediflow.user.service;
 
-import com.mediflow.config.JwtService;
+import com.mediflow.securityconfig.JwtService;
 import com.mediflow.user.dto.LoginResponseDto;
 import com.mediflow.user.dto.UserLoginRequestDto;
 import com.mediflow.user.dto.UserRequestDto;
