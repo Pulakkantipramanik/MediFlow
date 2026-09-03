@@ -6,30 +6,36 @@ import com.mediflow.prescription.dto.PrescriptionResponseDto;
 import com.mediflow.prescription.service.PrescriptionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 
 import java.util.List;
+
 @RestController
 @RequestMapping("/api/prescriptions")
-@RequiredArgsConstructor
+ // @RequiredArgsConstructor
 public class PrescriptionController {
 
     private final PrescriptionService prescriptionService;
 
-    // USER + ADMIN → Upload
+    public PrescriptionController(PrescriptionService prescriptionService){
+        this.prescriptionService=prescriptionService;
+    }
+
+
+    // USER + ADMIN → Upload prescription
+    // Why: Authentication থেকে logged-in user's email নেওয়া হচ্ছে,
+    // যাতে prescription অন্য user's নামে upload না হয়।
     @PostMapping(
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
     )
-    public ResponseEntity<PrescriptionResponseDto>
-    uploadPrescription(
+    public ResponseEntity<PrescriptionResponseDto> uploadPrescription(
             @Valid @ModelAttribute PrescriptionRequestDto request,
             Authentication authentication) {
 
@@ -47,7 +53,8 @@ public class PrescriptionController {
     }
 
 
-    // ADMIN → Pending prescriptions
+    // ADMIN → Get all pending prescriptions
+    // Why: শুধুমাত্র ADMIN pending prescription review করতে পারবে।
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/pending")
     public ResponseEntity<List<PrescriptionResponseDto>>
@@ -60,35 +67,54 @@ public class PrescriptionController {
     }
 
 
-    // ADMIN → Approve
+    // ADMIN → Approve prescription
+    // Why: শুধু ADMIN prescription approve করতে পারবে।
     @PreAuthorize("hasRole('ADMIN')")
     @PatchMapping("/{id}/approve")
     public ResponseEntity<PrescriptionResponseDto>
     approvePrescription(
-            @PathVariable Long id) {
+            @PathVariable Long id,
+            Authentication authentication) {
 
-        return ResponseEntity.ok(
-                prescriptionService.approvePrescription(id)
-        );
+        String adminEmail = authentication.getName();
+
+        PrescriptionResponseDto response =
+                prescriptionService.approvePrescription(
+                        id,
+                        adminEmail
+                );
+
+        return ResponseEntity.ok(response);
     }
 
 
-    // ADMIN → Reject
+    // ADMIN → Reject prescription
+    // Why: Rejection reason সহ admin-এর email service-এ পাঠানো হচ্ছে,
+    // যাতে audit log-এ কে reject করেছে সেটা track করা যায়।
     @PreAuthorize("hasRole('ADMIN')")
     @PatchMapping("/{id}/reject")
     public ResponseEntity<PrescriptionResponseDto>
     rejectPrescription(
             @PathVariable Long id,
-            @Valid @RequestBody PrescriptionRejectRequestDto request) {
+            @Valid @RequestBody PrescriptionRejectRequestDto request,
+            Authentication authentication) {
 
-        return ResponseEntity.ok(
+        String adminEmail = authentication.getName();
+
+        PrescriptionResponseDto response =
                 prescriptionService.rejectPrescription(
                         id,
-                        request.getRejectionReason()
-                )
-        );
+                        request.getRejectionReason(),
+                        adminEmail
+                );
+
+        return ResponseEntity.ok(response);
     }
 
+
+    // USER → Get own prescriptions
+    // Why: Authentication থেকে user's email নিয়ে
+    // শুধু সেই user's prescriptions ফেরত দেওয়া হচ্ছে।
     @GetMapping("/my-prescriptions")
     public ResponseEntity<List<PrescriptionResponseDto>>
     getMyPrescriptions(
@@ -97,11 +123,17 @@ public class PrescriptionController {
         String userEmail = authentication.getName();
 
         List<PrescriptionResponseDto> prescriptions =
-                prescriptionService.getMyPrescriptions(userEmail);
+                prescriptionService.getMyPrescriptions(
+                        userEmail
+                );
 
         return ResponseEntity.ok(prescriptions);
     }
 
+
+    // USER + ADMIN → Get prescription file
+    // Why: ADMIN সব prescription file access করতে পারবে,
+    // কিন্তু USER শুধুমাত্র নিজের file access করতে পারবে।
     @GetMapping("/{id}/file")
     public ResponseEntity<Resource> getPrescriptionFile(
             @PathVariable Long id,
@@ -114,7 +146,8 @@ public class PrescriptionController {
                         .stream()
                         .anyMatch(authority ->
                                 authority.getAuthority()
-                                        .equals("ROLE_ADMIN"));
+                                        .equals("ROLE_ADMIN")
+                        );
 
         Resource resource =
                 prescriptionService.getPrescriptionFile(
@@ -127,11 +160,17 @@ public class PrescriptionController {
                 .header(
                         HttpHeaders.CONTENT_DISPOSITION,
                         "inline; filename=\"" +
-                                resource.getFilename() + "\""
+                                resource.getFilename() +
+                                "\""
                 )
                 .contentType(MediaType.APPLICATION_PDF)
                 .body(resource);
     }
+
+
+    // USER → Get own prescription by ID
+    // Why: Service layer ownership check করবে,
+    // তাই user অন্য user's prescription দেখতে পারবে না।
     @GetMapping("/my-prescriptions/{id}")
     public ResponseEntity<PrescriptionResponseDto>
     getMyPrescriptionById(
@@ -140,12 +179,12 @@ public class PrescriptionController {
 
         String userEmail = authentication.getName();
 
-        return ResponseEntity.ok(
+        PrescriptionResponseDto response =
                 prescriptionService.getMyPrescriptionById(
                         id,
                         userEmail
-                )
-        );
-    }
+                );
 
+        return ResponseEntity.ok(response);
+    }
 }

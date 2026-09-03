@@ -1,22 +1,23 @@
 package com.mediflow.prescription.service;
 
+import com.mediflow.audit.service.AuditLogService;
 import com.mediflow.medicine.exception.PrescriptionNotFoundException;
+import com.mediflow.medicine.repository.MedicineRepository;
 import com.mediflow.prescription.dto.PrescriptionRequestDto;
 import com.mediflow.prescription.dto.PrescriptionResponseDto;
 import com.mediflow.prescription.entity.Prescription;
 import com.mediflow.prescription.entity.PrescriptionStatus;
 import com.mediflow.prescription.repository.PrescriptionRepository;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.security.access.AccessDeniedException;
-
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,16 +27,17 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+
 @Service
 @RequiredArgsConstructor
 public class PrescriptionService {
 
+    private final AuditLogService auditLogService;
     private final PrescriptionRepository prescriptionRepository;
+    private final MedicineRepository medicineRepository;
 
     @Value("${prescription.upload-dir}")
     private String uploadDir;
-
-
     // UPLOAD PRESCRIPTION
     public PrescriptionResponseDto uploadPrescription(
             PrescriptionRequestDto request,
@@ -124,14 +126,31 @@ public class PrescriptionService {
             );
 
             // 8. Save metadata in database
+            // PURPOSE:
+// Persist the uploaded prescription.
+//
+// WHY:
+// We need the generated prescription ID before
+// creating the audit record.
             Prescription savedPrescription =
-                    prescriptionRepository.save(
-                            prescription
-                    );
+                    prescriptionRepository.save(prescription);
 
-            return mapToResponseDto(
-                    savedPrescription
+// PURPOSE:
+// Record that the user uploaded a prescription.
+//
+// WHY:
+// Prescription upload is an important healthcare workflow
+// event and should be traceable.
+            auditLogService.log(
+                    userEmail,
+                    "PRESCRIPTION_UPLOADED",
+                    "PRESCRIPTION",
+                    savedPrescription.getId(),
+                    "Prescription uploaded for medicine: "
+                            + savedPrescription.getMedicineId()
             );
+
+            return mapToResponseDto(savedPrescription);
 
         } catch (IOException e) {
 
@@ -170,7 +189,8 @@ public class PrescriptionService {
     // APPROVE PRESCRIPTION - ADMIN
     @Transactional
     public PrescriptionResponseDto approvePrescription(
-            Long prescriptionId) {
+            Long prescriptionId,
+            String adminEmail) {
 
         Prescription prescription =
                 prescriptionRepository.findById(prescriptionId)
@@ -195,13 +215,28 @@ public class PrescriptionService {
         Prescription updatedPrescription =
                 prescriptionRepository.save(prescription);
 
+        // PURPOSE:
+// Record which ADMIN approved the prescription.
+//
+// WHY:
+// Prescription approval is a sensitive business action,
+// so the responsible ADMIN must be traceable.
+        auditLogService.log(
+                adminEmail,
+                "PRESCRIPTION_APPROVED",
+                "PRESCRIPTION",
+                updatedPrescription.getId(),
+                "Prescription approved by admin"
+        );
+
         return mapToResponseDto(updatedPrescription);
     }
     // REJECT PRESCRIPTION - ADMIN
     @Transactional
     public PrescriptionResponseDto rejectPrescription(
             Long prescriptionId,
-            String rejectionReason) {
+            String rejectionReason,
+            String adminEmail) {
 
         Prescription prescription =
                 prescriptionRepository.findById(prescriptionId)
@@ -229,6 +264,19 @@ public class PrescriptionService {
 
         Prescription updatedPrescription =
                 prescriptionRepository.save(prescription);
+        // PURPOSE:
+// Record which ADMIN rejected the prescription and why.
+//
+// WHY:
+// Rejection reason is important for audit, debugging
+// and understanding the approval decision.
+        auditLogService.log(
+                adminEmail,
+                "PRESCRIPTION_REJECTED",
+                "PRESCRIPTION",
+                updatedPrescription.getId(),
+                rejectionReason
+        );
 
         return mapToResponseDto(updatedPrescription);
     }

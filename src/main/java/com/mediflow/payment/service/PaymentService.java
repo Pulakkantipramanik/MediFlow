@@ -1,5 +1,6 @@
 package com.mediflow.payment.service;
 
+import com.mediflow.medicine.exception.OrderNotFoundException;
 import com.mediflow.medicine.exception.PaymentNotFoundException;
 import com.mediflow.order.entity.Order;
 import com.mediflow.order.entity.OrderStatus;
@@ -15,6 +16,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.mediflow.audit.service.AuditLogService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,6 +27,7 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final OrderRepository orderRepository;
+    private final AuditLogService auditLogService;
 
 
     // PURPOSE:
@@ -35,12 +38,13 @@ public class PaymentService {
     // service easier to test.
     public PaymentService(
             PaymentRepository paymentRepository,
-            OrderRepository orderRepository) {
+            OrderRepository orderRepository,
+            AuditLogService auditLogService) {
 
         this.paymentRepository = paymentRepository;
         this.orderRepository = orderRepository;
+        this.auditLogService = auditLogService;
     }
-
 
     // ============================================================
     // CREATE PAYMENT
@@ -135,7 +139,7 @@ public class PaymentService {
         // before creating the payment.
         Order order = orderRepository.findById(request.getOrderId())
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
+                        new OrderNotFoundException(
                                 "Order not found with id: "
                                         + request.getOrderId()));
 
@@ -219,11 +223,27 @@ public class PaymentService {
         Payment savedPayment =
                 paymentRepository.save(payment);
 
+        // PURPOSE:
+// Record that the user created a payment.
+//
+// WHY:
+// Payment creation is an important financial event
+// and should be traceable in the audit history.
+        auditLogService.log(
+                userEmail,
+                "PAYMENT_CREATED",
+                "PAYMENT",
+                savedPayment.getId(),
+                "Payment created for order: "
+                        + savedPayment.getOrderId()
+        );
+
 
         // PURPOSE:
         // Return the saved payment as a DTO.
         return mapToResponseDto(savedPayment);
     }
+
 
 
     // ============================================================
@@ -320,6 +340,19 @@ public class PaymentService {
         // Save the updated payment.
         Payment updatedPayment =
                 paymentRepository.save(payment);
+        // PURPOSE:
+// Record successful payment processing.
+//
+// WHY:
+// Payment success is a critical financial event
+// and must be traceable.
+        auditLogService.log(
+                payment.getUserEmail(),
+                "PAYMENT_SUCCESS",
+                "PAYMENT",
+                updatedPayment.getId(),
+                "Payment marked as successful"
+        );
 
 
         // PURPOSE:
@@ -382,6 +415,19 @@ public class PaymentService {
         // Save the updated payment status.
         Payment updatedPayment =
                 paymentRepository.save(payment);
+        // PURPOSE:
+// Record payment failure.
+//
+// WHY:
+// Payment failures are important for debugging,
+// monitoring and financial reconciliation.
+        auditLogService.log(
+                payment.getUserEmail(),
+                "PAYMENT_FAILED",
+                "PAYMENT",
+                updatedPayment.getId(),
+                "Payment marked as failed"
+        );
 
 
         // PURPOSE:
@@ -389,93 +435,135 @@ public class PaymentService {
         return mapToResponseDto(updatedPayment);
     }
 
-    // ============================================================
-// PAYMENT WEBHOOK
-// ============================================================
-
     // PURPOSE:
 // Processes the payment result received from the payment gateway.
 //
 // BUSINESS FLOW:
 // Find Payment
-// → Validate PENDING Status
-// → Validate Gateway Status
+// → Validate PENDING
+// → Validate SUCCESS/FAILED
 // → Set Transaction ID
-// → Update Payment Status
-// → Save Payment.
+// → Update Payment
+// → If SUCCESS, move Order to PROCESSING
+// → Save Payment
+// → Create Audit Log.
 //
 // WHY:
-// In a real payment application, the payment gateway informs our
-// application about the final payment result through a webhook.
+// The payment gateway sends the final payment result
+// asynchronously through a webhook.
     @Transactional
     public PaymentResponseDto processWebhook(
             PaymentWebhookRequestDto request) {
 
         // PURPOSE:
-        // Find the payment that the gateway is sending an update for.
-        //
-        // WHY:
-        // We cannot update the payment status if the payment does not exist.
+        // Find the payment that the gateway is updating.
         Payment payment = paymentRepository
                 .findById(request.getPaymentId())
                 .orElseThrow(() ->
                         new PaymentNotFoundException(
                                 "Payment not found with id: "
-                                        + request.getPaymentId()));
-
+                                        + request.getPaymentId()
+                        )
+                );
 
         // BUSINESS RULE:
-        // Only a PENDING payment can be updated by the webhook.
+        // Only PENDING payments can be updated by webhook.
         //
         // WHY:
-        // Once the payment is SUCCESS or FAILED, it should not be
-        // changed again by another webhook request.
+        // Once payment becomes SUCCESS or FAILED,
+        // it should not be changed again.
         if (payment.getStatus() != PaymentStatus.PENDING) {
 
             throw new IllegalArgumentException(
-                    "Only PENDING payment can be updated by webhook");
+                    "Only PENDING payment can be updated by webhook"
+            );
         }
 
-
         // BUSINESS RULE:
-        // The webhook should only accept SUCCESS or FAILED status.
+        // Webhook can only send SUCCESS or FAILED.
         //
         // WHY:
-        // The webhook represents the final result of a payment attempt.
-        payment.setStatus(request.getStatus());
+        // These represent the final result of the payment attempt.
         if (request.getStatus() != PaymentStatus.SUCCESS
                 && request.getStatus() != PaymentStatus.FAILED) {
 
             throw new IllegalArgumentException(
-                    "Webhook status must be SUCCESS or FAILED");
+                    "Webhook status must be SUCCESS or FAILED"
+            );
         }
-
 
         // PURPOSE:
         // Store the transaction ID received from the payment gateway.
         //
         // WHY:
-        // This transaction ID is the reference provided by the external
-        // payment provider for tracking the payment.
+        // This ID is the external payment provider's reference
+        // for tracking the transaction.
         payment.setTransactionId(
-                request.getTransactionId());
+                request.getTransactionId()
+        );
+
+        // PURPOSE:
+        // Update payment status after validating the webhook status.
+        payment.setStatus(request.getStatus());
+
+
+        // BUSINESS RULE:
+        // A successful payment moves the APPROVED order
+        // into PROCESSING state.
+        //
+        // WHY:
+        // The order should only start processing after
+        // successful payment confirmation.
+        if (request.getStatus() == PaymentStatus.SUCCESS) {
+
+            Order order = orderRepository
+                    .findById(payment.getOrderId())
+                    .orElseThrow(() ->
+                            new IllegalArgumentException(
+                                    "Order not found with id: "
+                                            + payment.getOrderId()
+                            )
+                    );
+
+            // BUSINESS RULE:
+            // Only an APPROVED order can move to PROCESSING.
+            //
+            // WHY:
+            // This prevents an invalid order state transition.
+            if (order.getStatus() != OrderStatus.APPROVED) {
+
+                throw new IllegalArgumentException(
+                        "Only APPROVED order can move to PROCESSING"
+                );
+            }
+
+            order.setStatus(OrderStatus.PROCESSING);
+
+            orderRepository.save(order);
+        }
 
 
         // PURPOSE:
-        // Update the payment status with the result received
-        // from the payment gateway.
-        payment.setStatus(
-                request.getStatus());
-
-
-        // PURPOSE:
-        // Save the updated payment record in the database.
+        // Save the final payment status.
         Payment updatedPayment =
                 paymentRepository.save(payment);
 
 
         // PURPOSE:
-        // Return the updated payment as a DTO.
+        // Record that the external payment webhook was processed.
+        //
+        // WHY:
+        // Webhook events are important for payment reconciliation,
+        // debugging and audit history.
+        auditLogService.log(
+                payment.getUserEmail(),
+                "PAYMENT_WEBHOOK_PROCESSED",
+                "PAYMENT",
+                updatedPayment.getId(),
+                "Webhook processed with status: "
+                        + request.getStatus()
+        );
+
         return mapToResponseDto(updatedPayment);
     }
 
@@ -510,18 +598,16 @@ public class PaymentService {
     }
 
 
-    // ============================================================
-    // GET PAYMENT BY ID
-    // ============================================================
 
     // PURPOSE:
-    // Returns one payment by ID for the authenticated user.
-    //
-    // SECURITY:
-    // The payment must belong to the authenticated user.
-    //
-    // BUSINESS RULE:
-    // A user cannot access another user's payment.
+// Returns one payment by ID for the authenticated user.
+//
+// SECURITY:
+// The payment must belong to the authenticated user.
+//
+// WHY:
+// A user cannot access another user's payment
+// by changing the payment ID in the URL.
     public PaymentResponseDto getPaymentById(
             Long paymentId,
             String userEmail) {
@@ -533,42 +619,24 @@ public class PaymentService {
                 .orElseThrow(() ->
                         new PaymentNotFoundException(
                                 "Payment not found with id: "
-                                        + paymentId));
-
-        // BUSINESS RULE:
-// A payment can be processed only once.
-//
-// WHY:
-// Payment gateways may send the same webhook multiple times.
-// If the payment already has a transaction ID, it means
-// the webhook has already been processed.
-        if (payment.getTransactionId() != null
-                && !payment.getTransactionId().isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Webhook already processed for payment id: "
-                            + payment.getId());
-        }
-
+                                        + paymentId
+                        )
+                );
 
         // SECURITY:
         // Verify that the payment belongs to the authenticated user.
         //
         // WHY:
-        // Prevents a user from accessing another user's payment
-        // simply by changing the ID in the URL.
+        // Prevents a user from accessing another user's payment.
         if (!payment.getUserEmail().equals(userEmail)) {
 
             throw new IllegalArgumentException(
-                    "You are not allowed to access this payment");
+                    "You are not allowed to access this payment"
+            );
         }
 
-
-        // PURPOSE:
-        // Convert the payment entity into a response DTO.
         return mapToResponseDto(payment);
     }
-
 
     // ============================================================
     // ADMIN - ALL PAYMENTS

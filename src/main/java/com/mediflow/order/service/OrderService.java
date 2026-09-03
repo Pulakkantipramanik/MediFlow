@@ -1,5 +1,6 @@
 package com.mediflow.order.service;
 
+import com.mediflow.audit.service.AuditLogService;
 import com.mediflow.medicine.entity.Medicine;
 import com.mediflow.medicine.exception.MedicineNotFoundException;
 import com.mediflow.medicine.exception.OrderNotFoundException;
@@ -27,17 +28,19 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final MedicineRepository medicineRepository;
     private final PrescriptionRepository prescriptionRepository;
+    private final AuditLogService auditLogService;
 
     public OrderService(
             OrderRepository orderRepository,
             MedicineRepository medicineRepository,
-            PrescriptionRepository prescriptionRepository) {
+            PrescriptionRepository prescriptionRepository,
+            AuditLogService auditLogService) {
 
         this.orderRepository = orderRepository;
         this.medicineRepository = medicineRepository;
         this.prescriptionRepository = prescriptionRepository;
+        this.auditLogService = auditLogService;
     }
-
     // PURPOSE:
     // Creates a new order for the authenticated user.
     // BUSINESS FLOW:
@@ -143,55 +146,71 @@ public class OrderService {
         order.setOrderDate(LocalDateTime.now());
 
         // PURPOSE:
-        // Persist the newly created order in the database.
+// Persist the newly created order in the database.
+//
+// WHY:
+// The order must be saved before creating the audit record
+// so that we have the generated Order ID.
         Order savedOrder =
                 orderRepository.save(order);
 
-        // PURPOSE:
-        // Convert the saved entity into the response DTO
-        // that is returned to the API caller.
+// PURPOSE:
+// Record that the user created a new order.
+//
+// WHY:
+// Order creation is an important business event.
+// Keeping it in the audit table gives us the complete
+// lifecycle history of the order.
+        auditLogService.log(
+                userEmail,
+                "ORDER_CREATED",
+                "ORDER",
+                savedOrder.getId(),
+                "Order created by user"
+        );
+
+// PURPOSE:
+// Convert the saved entity into the response DTO
+// that is returned to the API caller.
         return mapToResponseDto(savedOrder);
     }
-
-
     // PURPOSE:
-    // Returns all orders belonging to the currently authenticated user.
-    // WHY:
-    // A user should only be able to see their own orders.
+// Returns all orders belonging to the currently authenticated user.
+//
+// WHY:
+// A user should only be able to view their own orders.
+// The user's email comes from JWT Authentication.
     public List<OrderResponseDto> getMyOrders(
             String userEmail) {
 
+        // PURPOSE:
+        // Fetch only the orders belonging to this user.
+        //
+        // WHY:
+        // This prevents one user from seeing another user's orders.
         List<Order> orders =
                 orderRepository.findByUserEmail(userEmail);
 
+        // PURPOSE:
+        // Convert Order entities into response DTOs.
+        //
+        // WHY:
+        // We should not expose the database entity directly
+        // through the REST API.
         return orders.stream()
                 .map(this::mapToResponseDto)
                 .toList();
     }
 
-
     // PURPOSE:
-    // Returns all orders for ADMIN users with pagination support.
-    // WHY:
-    // Admin may have many orders, so Pageable avoids loading
-    // every order at once.
-    public Page<OrderResponseDto> getAllOrders(
-            Pageable pageable) {
-
-        return orderRepository
-                .findAll(pageable)
-                .map(this::mapToResponseDto);
-    }
-
-
-    /// PURPOSE:
-// Approves a pending order by an administrator.
+// Approves a pending order and records who performed the approval.
 //
 // WHY:
-// Approval is a controlled workflow step.
-// Only PENDING orders can be approved.
+// Audit logging requires the authenticated ADMIN's email.
     @Transactional
-    public OrderResponseDto approveOrder(Long orderId) {
+    public OrderResponseDto approveOrder(
+            Long orderId,
+            String adminEmail) {
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException(
@@ -199,11 +218,10 @@ public class OrderService {
                 ));
 
         // PURPOSE:
-        // Prevent invalid state transitions.
+        // Only PENDING orders can be approved.
         //
         // WHY:
-        // APPROVED, PROCESSING or REJECTED orders
-        // must not be approved again.
+        // Prevents invalid state transitions.
         validateCurrentStatus(
                 order,
                 OrderStatus.PENDING,
@@ -212,9 +230,22 @@ public class OrderService {
 
         order.setStatus(OrderStatus.APPROVED);
 
-        return mapToResponseDto(
-                orderRepository.save(order)
+        Order savedOrder = orderRepository.save(order);
+
+        // PURPOSE:
+        // Record which ADMIN approved this order.
+        //
+        // WHY:
+        // This creates an audit trail for important administrative actions.
+        auditLogService.log(
+                adminEmail,
+                "ORDER_APPROVED",
+                "ORDER",
+                savedOrder.getId(),
+                "Order approved by admin"
         );
+
+        return mapToResponseDto(savedOrder);
     }
 
     // PURPOSE:
@@ -226,7 +257,8 @@ public class OrderService {
     @Transactional
     public OrderResponseDto rejectOrder(
             Long orderId,
-            OrderRejectRequestDto request) {
+            OrderRejectRequestDto request,
+            String adminEmail) {
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException(
@@ -259,9 +291,23 @@ public class OrderService {
         // Rejected orders must return that quantity to inventory.
         restoreMedicineStock(order);
 
-        return mapToResponseDto(
-                orderRepository.save(order)
+        Order savedOrder = orderRepository.save(order);
+
+        // PURPOSE:
+        // Record the ADMIN who rejected the order and the reason.
+        //
+        // WHY:
+        // Rejection is an important business action that should
+        // remain traceable in the audit history.
+        auditLogService.log(
+                adminEmail,
+                "ORDER_REJECTED",
+                "ORDER",
+                savedOrder.getId(),
+                request.getRejectionReason()
         );
+
+        return mapToResponseDto(savedOrder);
     }
     // PURPOSE:
     // Restores the ordered quantity back into medicine stock
@@ -277,7 +323,7 @@ public class OrderService {
         Medicine medicine =
                 medicineRepository.findById(order.getMedicineId())
                         .orElseThrow(() ->
-                                new OrderNotFoundException(
+                                new MedicineNotFoundException(
                                         "Medicine not found with id: "
                                                 + order.getMedicineId()
                                 ));
@@ -376,19 +422,32 @@ public class OrderService {
         );
 
         // PURPOSE:
-        // Restore the medicine quantity that was reserved
-        // when the order was created.
-        //
-        // WHY:
-        // Cancelled orders will not consume the medicine,
-        // so the reserved stock must become available again.
+// Restore the medicine quantity reserved for this order.
+//
+// WHY:
+// Cancelled orders will not consume the medicine,
+// so the quantity must become available again.
         restoreMedicineStock(order);
 
         order.setStatus(OrderStatus.CANCELLED);
 
-        return mapToResponseDto(
-                orderRepository.save(order)
+        Order savedOrder = orderRepository.save(order);
+
+// PURPOSE:
+// Record that the user cancelled the order.
+//
+// WHY:
+// Cancellation changes both order state and inventory,
+// so it should be available in the audit history.
+        auditLogService.log(
+                userEmail,
+                "ORDER_CANCELLED",
+                "ORDER",
+                savedOrder.getId(),
+                "Order cancelled by user"
         );
+
+        return mapToResponseDto(savedOrder);
     }
     // PURPOSE:
 // Moves an order from PROCESSING to SHIPPED.
@@ -396,40 +455,71 @@ public class OrderService {
 // WHY:
 // Only an order that has entered the processing stage
 // can be shipped. This prevents invalid status jumps.
+//
+// ACCESS:
+// ADMIN only through OrderController.
     @Transactional
-    public OrderResponseDto shipOrder(Long orderId) {
+    public OrderResponseDto shipOrder(
+            Long orderId,
+            String adminEmail) {
 
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new OrderNotFoundException(
-                        "Order not found with id: " + orderId
-                ));
+                .orElseThrow(() ->
+                        new OrderNotFoundException(
+                                "Order not found with id: " + orderId
+                        )
+                );
 
         // PURPOSE:
         // Allow shipping only when the order is PROCESSING.
         //
         // WHY:
-        // An order cannot be shipped before payment/processing
-        // has been completed.
+        // An order cannot be shipped before payment and
+        // processing have been completed.
         validateCurrentStatus(
                 order,
                 OrderStatus.PROCESSING,
                 "shipped"
         );
 
+        // BUSINESS RULE:
+        // Move the order from PROCESSING to SHIPPED.
+        //
+        // WHY:
+        // This represents the actual shipment state transition.
         order.setStatus(OrderStatus.SHIPPED);
 
-        return mapToResponseDto(
-                orderRepository.save(order)
+        // PURPOSE:
+        // Persist the new SHIPPED status.
+        Order savedOrder =
+                orderRepository.save(order);
+
+        // PURPOSE:
+        // Record which ADMIN marked the order as shipped.
+        //
+        // WHY:
+        // Shipment is an important fulfillment action
+        // and should be traceable.
+        auditLogService.log(
+                adminEmail,
+                "ORDER_SHIPPED",
+                "ORDER",
+                savedOrder.getId(),
+                "Order marked as shipped"
         );
+
+        return mapToResponseDto(savedOrder);
     }
     // PURPOSE:
 // Moves an order from SHIPPED to DELIVERED.
 //
 // WHY:
-// Delivery should happen only after the order has actually
-// been marked as shipped.
+// Delivery is allowed only after shipment and the
+// ADMIN action must be recorded in the audit history.
     @Transactional
-    public OrderResponseDto deliverOrder(Long orderId) {
+    public OrderResponseDto deliverOrder(
+            Long orderId,
+            String adminEmail) {
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException(
@@ -450,8 +540,36 @@ public class OrderService {
 
         order.setStatus(OrderStatus.DELIVERED);
 
-        return mapToResponseDto(
-                orderRepository.save(order)
+        Order savedOrder = orderRepository.save(order);
+
+        // PURPOSE:
+        // Record which ADMIN marked the order as delivered.
+        //
+        // WHY:
+        // Delivery is the final fulfillment action and should
+        // remain traceable.
+        auditLogService.log(
+                adminEmail,
+                "ORDER_DELIVERED",
+                "ORDER",
+                savedOrder.getId(),
+                "Order marked as delivered"
         );
+
+        return mapToResponseDto(savedOrder);
+    }
+    // PURPOSE:
+// Returns all orders with pagination.
+//
+// WHY:
+// ADMIN needs to view orders from all users,
+// while Pageable prevents loading every record at once.
+    public Page<OrderResponseDto> getAllOrders(
+            Pageable pageable) {
+
+        Page<Order> orders =
+                orderRepository.findAll(pageable);
+
+        return orders.map(this::mapToResponseDto);
     }
 }
