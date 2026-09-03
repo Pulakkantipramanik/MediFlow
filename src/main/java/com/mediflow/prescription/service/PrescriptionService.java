@@ -1,5 +1,6 @@
 package com.mediflow.prescription.service;
 
+import com.mediflow.medicine.exception.PrescriptionNotFoundException;
 import com.mediflow.prescription.dto.PrescriptionRequestDto;
 import com.mediflow.prescription.dto.PrescriptionResponseDto;
 import com.mediflow.prescription.entity.Prescription;
@@ -174,7 +175,7 @@ public class PrescriptionService {
         Prescription prescription =
                 prescriptionRepository.findById(prescriptionId)
                         .orElseThrow(() ->
-                                new IllegalArgumentException(
+                                new PrescriptionNotFoundException(
                                         "Prescription not found with id: "
                                                 + prescriptionId
                                 ));
@@ -205,7 +206,7 @@ public class PrescriptionService {
         Prescription prescription =
                 prescriptionRepository.findById(prescriptionId)
                         .orElseThrow(() ->
-                                new IllegalArgumentException(
+                                new PrescriptionNotFoundException(
                                         "Prescription not found with id: "
                                                 + prescriptionId
                                 ));
@@ -248,7 +249,7 @@ public class PrescriptionService {
         Prescription prescription =
                 prescriptionRepository.findById(prescriptionId)
                         .orElseThrow(() ->
-                                new IllegalArgumentException(
+                                new PrescriptionNotFoundException(
                                         "Prescription not found with id: "
                                                 + prescriptionId
                                 ));
@@ -328,7 +329,7 @@ public class PrescriptionService {
         Prescription prescription =
                 prescriptionRepository.findById(prescriptionId)
                         .orElseThrow(() ->
-                                new IllegalArgumentException(
+                                new PrescriptionNotFoundException(
                                         "Prescription not found with id: "
                                                 + prescriptionId
                                 ));

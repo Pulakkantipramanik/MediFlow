@@ -2,6 +2,7 @@ package com.mediflow.order.service;
 
 import com.mediflow.medicine.entity.Medicine;
 import com.mediflow.medicine.exception.MedicineNotFoundException;
+import com.mediflow.medicine.exception.OrderNotFoundException;
 import com.mediflow.medicine.repository.MedicineRepository;
 import com.mediflow.order.dto.OrderRequestDto;
 import com.mediflow.order.dto.OrderResponseDto;
@@ -194,7 +195,7 @@ public class OrderService {
         Order order =
                 orderRepository.findById(orderId)
                         .orElseThrow(() ->
-                                new IllegalArgumentException(
+                                new OrderNotFoundException(
                                         "Order not found with id: "
                                                 + orderId
                                 ));
@@ -237,7 +238,7 @@ public class OrderService {
         Order order =
                 orderRepository.findById(orderId)
                         .orElseThrow(() ->
-                                new IllegalArgumentException(
+                                new OrderNotFoundException(
                                         "Order not found with id: "
                                                 + orderId
                                 ));
@@ -283,7 +284,7 @@ public class OrderService {
         Medicine medicine =
                 medicineRepository.findById(order.getMedicineId())
                         .orElseThrow(() ->
-                                new MedicineNotFoundException(
+                                new OrderNotFoundException(
                                         "Medicine not found with id: "
                                                 + order.getMedicineId()
                                 ));

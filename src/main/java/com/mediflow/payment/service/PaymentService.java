@@ -1,5 +1,6 @@
 package com.mediflow.payment.service;
 
+import com.mediflow.medicine.exception.PaymentNotFoundException;
 import com.mediflow.order.entity.Order;
 import com.mediflow.order.entity.OrderStatus;
 import com.mediflow.order.repository.OrderRepository;
@@ -244,7 +245,7 @@ public class PaymentService {
         Payment payment = paymentRepository
                 .findById(paymentId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
+                        new PaymentNotFoundException(
                                 "Payment not found with id: "
                                         + paymentId));
 
@@ -317,7 +318,7 @@ public class PaymentService {
         Payment payment = paymentRepository
                 .findById(paymentId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
+                        new PaymentNotFoundException(
                                 "Payment not found with id: "
                                         + paymentId));
 
@@ -381,7 +382,7 @@ public class PaymentService {
         Payment payment = paymentRepository
                 .findById(request.getPaymentId())
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
+                        new PaymentNotFoundException(
                                 "Payment not found with id: "
                                         + request.getPaymentId()));
 
@@ -493,7 +494,7 @@ public class PaymentService {
         Payment payment = paymentRepository
                 .findById(paymentId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
+                        new PaymentNotFoundException(
                                 "Payment not found with id: "
                                         + paymentId));
 
