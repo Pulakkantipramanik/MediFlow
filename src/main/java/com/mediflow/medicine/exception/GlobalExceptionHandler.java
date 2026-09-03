@@ -64,4 +64,18 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ex.getMessage());
     }
+    @ExceptionHandler(PaymentNotFoundException.class)
+// PURPOSE:
+// Handles PaymentNotFoundException centrally.
+//
+// WHY:
+// If a payment does not exist, the client should receive
+// HTTP 404 NOT_FOUND.
+    public ResponseEntity<String> handlePaymentNotFound(
+            PaymentNotFoundException ex) {
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ex.getMessage());
+    }
 }
