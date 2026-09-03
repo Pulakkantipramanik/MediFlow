@@ -57,6 +57,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<String> handleIllegalArgumentException(
             IllegalArgumentException ex) {
 
+        // PURPOSE:
+        // Return HTTP 400 because the request contains
+        // an invalid value or business condition.
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ex.getMessage());
