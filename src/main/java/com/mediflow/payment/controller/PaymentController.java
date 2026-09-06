@@ -98,6 +98,7 @@ public class PaymentController {
     // NOTE:
     // In a real payment system, this normally comes from
     // a payment gateway webhook/callback.
+    @PreAuthorize("hasRole('ADMIN')")
     @PatchMapping("/{id}/success")
     public ResponseEntity<PaymentResponseDto> markPaymentSuccess(
             @PathVariable Long id) {
@@ -115,6 +116,7 @@ public class PaymentController {
     // NOTE:
     // In a real payment system, this normally comes from
     // a payment gateway response/webhook.
+    @PreAuthorize("hasRole('ADMIN')")
     @PatchMapping("/{id}/failed")
     public ResponseEntity<PaymentResponseDto> markPaymentFailed(
             @PathVariable Long id) {

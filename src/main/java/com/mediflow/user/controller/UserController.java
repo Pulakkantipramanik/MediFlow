@@ -1,5 +1,4 @@
 package com.mediflow.user.controller;
-
 import com.mediflow.user.dto.LoginResponseDto;
 import com.mediflow.user.dto.UserLoginRequestDto;
 import com.mediflow.user.dto.UserRequestDto;
@@ -22,6 +21,12 @@ public class UserController {
     public ResponseEntity<UserResponseDto> registerUser(
             @Valid @RequestBody UserRequestDto request) {
 
+
+       /* public UserController(UserService userService) {
+            this.userService = userService;
+            // we wrote the same line in below and
+            //শুধু আগে injected হওয়া Service object-এর method call করছে।
+        }*/
         UserResponseDto response =
                 userService.registerUser(request);
 

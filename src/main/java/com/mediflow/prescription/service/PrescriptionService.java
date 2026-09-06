@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 
@@ -46,7 +47,7 @@ public class PrescriptionService {
         MultipartFile file = request.getFile();
 
         // 1. Check file empty
-        if (file == null || file.isEmpty()) {
+        if (Objects.equals(file, null) || file.isEmpty()) {
             throw new IllegalArgumentException(
                     "Prescription file is required"
             );

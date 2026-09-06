@@ -1,5 +1,4 @@
 package com.mediflow.user.service;
-
 import com.mediflow.securityconfig.JwtService;
 import com.mediflow.user.dto.LoginResponseDto;
 import com.mediflow.user.dto.UserLoginRequestDto;
@@ -42,7 +41,6 @@ public class UserService {
                         request.getPassword()
                 )
         );
-
         // Default role
         user.setRole("ROLE_USER");
 

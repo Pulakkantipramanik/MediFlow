@@ -35,13 +35,14 @@ public class AuditLogController {
 
         return ResponseEntity.ok(auditLogs);
     }
+
     // PURPOSE:
-// Allows ADMIN to view the complete audit history
-// of a prescription.
-//
-// WHY:
-// Prescription approval/rejection decisions should be
-// traceable for administrative review.
+    // Allows ADMIN to view the complete audit history
+    // of a prescription.
+    //
+    // WHY:
+    // Prescription approval/rejection decisions should be
+    // traceable for administrative review.
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/prescriptions/{prescriptionId}")
     public ResponseEntity<List<AuditLog>> getPrescriptionAuditLogs(
@@ -51,6 +52,28 @@ public class AuditLogController {
                 auditLogService.getEntityAuditLogs(
                         "PRESCRIPTION",
                         prescriptionId
+                );
+
+        return ResponseEntity.ok(auditLogs);
+    }
+
+    // PURPOSE:
+    // Allows ADMIN to view the complete audit history
+    // of a payment.
+    //
+    // WHY:
+    // Payment activities such as creation, success,
+    // failure, and webhook processing should be traceable
+    // for administrative and troubleshooting purposes.
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/payments/{paymentId}")
+    public ResponseEntity<List<AuditLog>> getPaymentAuditLogs(
+            @PathVariable Long paymentId) {
+
+        List<AuditLog> auditLogs =
+                auditLogService.getEntityAuditLogs(
+                        "PAYMENT",
+                        paymentId
                 );
 
         return ResponseEntity.ok(auditLogs);
