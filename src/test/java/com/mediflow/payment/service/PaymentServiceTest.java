@@ -170,6 +170,7 @@ class PaymentServiceTest {
                         any()
                 );
     }
+
     @Test
     void markPaymentFailed_shouldChangePendingPaymentToFailed() {
 
