@@ -50,13 +50,7 @@ public class PaymentService {
         this.auditLogService = auditLogService;
     }
 
-    // ============================================================
-    // CREATE PAYMENT
-    // ============================================================
 
-    // PURPOSE:
-    // Creates a PENDING payment for an approved order.
-    //
     // BUSINESS FLOW:
     // Idempotency Check
     // → Find Order
@@ -65,9 +59,6 @@ public class PaymentService {
     // → Check Existing Payment
     // → Create Payment
     // → Save Payment.
-    //
-    // WHY:
-    // Payment should only be initiated after ADMIN approves the order.
     @Transactional
     public PaymentResponseDto createPayment(
             PaymentRequestDto request,
@@ -78,13 +69,7 @@ public class PaymentService {
         //
         // WHY:
         // A client may retry the same request because of network problems
-        // or because the user clicked the payment button multiple times.
-        //
-        // BUSINESS RULE:
-        // The same idempotency key must not create another payment.
-        // PURPOSE:
-// Check whether this idempotency key was already used.
-//
+        // or because the user clicked the payment button multiple times
 // WHY:
 // A client may retry the same payment request.
 // We should return the original payment instead of creating
