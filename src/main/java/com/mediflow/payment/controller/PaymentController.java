@@ -17,7 +17,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
@@ -156,6 +156,7 @@ public class PaymentController {
 // WHY:
 // Without webhook authentication, anyone could call this endpoint
 // and change a payment from PENDING to SUCCESS.
+    @SecurityRequirements
     @PostMapping("/webhook")
     public ResponseEntity<PaymentResponseDto> processWebhook(
             @RequestHeader("X-Webhook-Secret") String receivedSecret,

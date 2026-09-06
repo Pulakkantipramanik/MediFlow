@@ -9,7 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 @RestController
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
@@ -17,6 +17,7 @@ public class UserController {
 
     private final UserService userService;
 
+    @SecurityRequirements
     @PostMapping("/register")
     public ResponseEntity<UserResponseDto> registerUser(
             @Valid @RequestBody UserRequestDto request) {
@@ -35,6 +36,7 @@ public class UserController {
                 .body(response);
     }
 
+    @SecurityRequirements
     @PostMapping("/login")
     public ResponseEntity<LoginResponseDto> loginUser(
             @Valid @RequestBody UserLoginRequestDto request) {
