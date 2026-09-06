@@ -1,5 +1,6 @@
 package com.mediflow.payment.service;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.mediflow.medicine.exception.OrderNotFoundException;
 import com.mediflow.medicine.exception.PaymentNotFoundException;
 import com.mediflow.order.entity.Order;
@@ -28,6 +29,9 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final OrderRepository orderRepository;
     private final AuditLogService auditLogService;
+
+    private static final Logger log =
+            LoggerFactory.getLogger(PaymentService.class);
 
 
     // PURPOSE:
@@ -224,6 +228,19 @@ public class PaymentService {
                 paymentRepository.save(payment);
 
         // PURPOSE:
+// Log successful payment creation.
+//
+// WHY:
+// Helps trace payment creation during development
+// without logging sensitive payment information.
+        log.info(
+                "Payment created: paymentId={}, orderId={}, user={}",
+                savedPayment.getId(),
+                savedPayment.getOrderId(),
+                userEmail
+        );
+
+        // PURPOSE:
 // Record that the user created a payment.
 //
 // WHY:
@@ -307,18 +324,23 @@ public class PaymentService {
                                         + paymentId));
 
 
-        // BUSINESS RULE:
-        // Only a PENDING payment can become SUCCESS.
-        //
-        // WHY:
-        // Prevents an already SUCCESS or FAILED payment from
-        // being changed incorrectly.
         if (payment.getStatus() != PaymentStatus.PENDING) {
+
+            // PURPOSE:
+            // Log an invalid payment state transition attempt.
+            //
+            // WHY:
+            // Helps identify unexpected payment flows or
+            // repeated status-change requests.
+            log.warn(
+                    "Invalid payment success attempt: paymentId={}, currentStatus={}",
+                    paymentId,
+                    payment.getStatus()
+            );
 
             throw new IllegalArgumentException(
                     "Only PENDING payment can be marked as SUCCESS");
         }
-
 
         // PURPOSE:
         // Generate a transaction reference for the successful payment.
@@ -340,6 +362,19 @@ public class PaymentService {
         // Save the updated payment.
         Payment updatedPayment =
                 paymentRepository.save(payment);
+
+
+        // PURPOSE:
+// Log successful payment status update.
+//
+// WHY:
+// Helps trace when a payment changes from PENDING
+// to SUCCESS.
+        log.info(
+                "Payment marked SUCCESS: paymentId={}, transactionId={}",
+                updatedPayment.getId(),
+                updatedPayment.getTransactionId()
+        );
         // PURPOSE:
 // Record successful payment processing.
 //
@@ -393,13 +428,19 @@ public class PaymentService {
                                         + paymentId));
 
 
-        // BUSINESS RULE:
-        // Only a PENDING payment can become FAILED.
-        //
-        // WHY:
-        // Prevents an already completed payment from being
-        // changed to FAILED.
         if (payment.getStatus() != PaymentStatus.PENDING) {
+
+            // PURPOSE:
+            // Log an invalid payment failure attempt.
+            //
+            // WHY:
+            // Helps identify attempts to change an already
+            // completed payment.
+            log.warn(
+                    "Invalid payment failure attempt: paymentId={}, currentStatus={}",
+                    paymentId,
+                    payment.getStatus()
+            );
 
             throw new IllegalArgumentException(
                     "Only PENDING payment can be marked as FAILED");
@@ -415,6 +456,13 @@ public class PaymentService {
         // Save the updated payment status.
         Payment updatedPayment =
                 paymentRepository.save(payment);
+
+        // Payment failures are important for troubleshooting
+// and monitoring.
+        log.info(
+                "Payment marked FAILED: paymentId={}",
+                updatedPayment.getId()
+        );
         // PURPOSE:
 // Record payment failure.
 //
@@ -456,6 +504,17 @@ public class PaymentService {
             PaymentWebhookRequestDto request) {
 
         // PURPOSE:
+// Log that a payment webhook was received.
+//
+// WHY:
+// Helps trace asynchronous payment gateway events.
+        log.info(
+                "Payment webhook received: paymentId={}, status={}",
+                request.getPaymentId(),
+                request.getStatus()
+        );
+
+        // PURPOSE:
         // Find the payment that the gateway is updating.
         Payment payment = paymentRepository
                 .findById(request.getPaymentId())
@@ -486,6 +545,17 @@ public class PaymentService {
         // These represent the final result of the payment attempt.
         if (request.getStatus() != PaymentStatus.SUCCESS
                 && request.getStatus() != PaymentStatus.FAILED) {
+
+            // PURPOSE:
+            // Log an invalid webhook status.
+            //
+            // WHY:
+            // Helps detect malformed or unexpected gateway events.
+            log.warn(
+                    "Invalid payment webhook status: paymentId={}, status={}",
+                    request.getPaymentId(),
+                    request.getStatus()
+            );
 
             throw new IllegalArgumentException(
                     "Webhook status must be SUCCESS or FAILED"
@@ -548,6 +618,17 @@ public class PaymentService {
         Payment updatedPayment =
                 paymentRepository.save(payment);
 
+        // PURPOSE:
+// Log successful webhook processing.
+//
+// WHY:
+// Helps trace the final payment state received
+// from the payment gateway.
+        log.info(
+                "Payment webhook processed: paymentId={}, status={}",
+                updatedPayment.getId(),
+                updatedPayment.getStatus()
+        );
 
         // PURPOSE:
         // Record that the external payment webhook was processed.
@@ -700,4 +781,5 @@ public class PaymentService {
         // while preserving pagination information.
         return payments.map(this::mapToResponseDto);
     }
+
 }
