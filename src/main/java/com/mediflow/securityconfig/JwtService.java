@@ -2,6 +2,7 @@ package com.mediflow.securityconfig;
 
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
@@ -11,16 +12,34 @@ import java.util.Date;
 @Service
 public class JwtService {
 
-    private final String SECRET_KEY =
-            "my-super-secret-key-for-mediflow-jwt-2026";
+    // PURPOSE:
+    // Read the JWT secret from application.properties.
+    //
+    // WHY:
+    // Keeping the secret outside the Java source code
+    // prevents sensitive credentials from being hardcoded
+    // into the application.
+    @Value("${jwt.secret}")
+    private String secretKey;
 
+    // PURPOSE:
+    // Defines how long a JWT remains valid.
+    //
+    // CURRENT BUSINESS RULE:
+    // Token expires after 1 hour.
     private final long EXPIRATION_TIME =
             1000 * 60 * 60; // 1 hour
 
+    // PURPOSE:
+    // Creates the cryptographic signing key from the configured secret.
+    //
+    // WHY:
+    // The same signing key must be used both when generating
+    // and validating JWT tokens.
     private SecretKey getSigningKey() {
 
         return Keys.hmacShaKeyFor(
-                SECRET_KEY.getBytes(StandardCharsets.UTF_8)
+                secretKey.getBytes(StandardCharsets.UTF_8)
         );
     }
 
@@ -45,6 +64,7 @@ public class JwtService {
 
                 .compact();
     }
+
     public String extractEmail(String token) {
 
         return Jwts.parser()
@@ -54,6 +74,7 @@ public class JwtService {
                 .getPayload()
                 .getSubject();
     }
+
     public boolean isTokenValid(String token) {
 
         try {
