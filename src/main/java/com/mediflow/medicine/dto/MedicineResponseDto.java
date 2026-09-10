@@ -18,7 +18,7 @@ DB → Entity → ResponseDTO → UI*/
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class MedicineResponseDto {
+public class MedicineResponseDto{
     private Long id;
     private String name;
     private String description;

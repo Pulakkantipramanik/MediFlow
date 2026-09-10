@@ -43,4 +43,5 @@ public class MedicineRequestDto {
 
     @NotNull(message = "Status is required")
     private MedicineStatus status;
+
 }
